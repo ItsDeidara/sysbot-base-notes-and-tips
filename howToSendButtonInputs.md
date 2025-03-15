@@ -4,6 +4,44 @@
 
 This document explains how to properly send button inputs to a Nintendo Switch using the sys-botbase module. This includes regular buttons, stick clicks (L3/R3), and analog stick positions.
 
+## Critical Implementation Requirements
+
+1. **Controller Configuration**
+   ```python
+   # MUST configure controller before sending any button commands exactly like this
+   switch.sendCommand("configure controllerType 3")       # Set default controller type
+   switch.sendCommand("configure buttonClickSleepTime 50") # Set button timing
+   switch.sendCommand("configure mainLoopSleepTime 50")   # Set loop timing
+   ```
+
+2. **Command Formatting**
+   - Every command MUST end with `\r\n`
+   - Add 50ms sleep between commands
+   ```python
+   def sendCommand(self, content):
+       content += '\r\n'  # Critical: Add \r\n at end
+       self.socket.sendall(content.encode())
+       time.sleep(0.05)  # Wait 50ms between commands
+   ```
+
+3. **Button Press/Release Protocol**
+   ```python
+   # Simple and reliable button implementation
+   def press_button(self, button):
+       self.sendCommand(f"press {button}")
+       
+   def release_button(self, button):
+       self.sendCommand(f"release {button}")
+   ```
+
+4. **Connection Setup**
+   ```python
+   # Proper connection sequence
+   socket.connect((ip_address, port))
+   configure_controller()  # Send configuration commands
+   sendCommand("getTitleID")  # Test connection
+   ```
+
 ## Button Types
 
 ### Standard Buttons
@@ -38,6 +76,40 @@ switch.click_sequence("A,W1000,B")  # Press A, wait 1 second, press B
 
 ## Analog Stick Control
 
+### Command Format
+```python
+# Format: setStick STICK_NAME X_VALUE Y_VALUE
+# STICK_NAME must be either "LEFT" or "RIGHT" (case sensitive)
+# X_VALUE and Y_VALUE are hexadecimal coordinates (-0x8000 to 0x7FFF)
+
+# Examples:
+switch.sendCommand("setStick LEFT 0x0000 0x7FFF")   # Move left stick up
+switch.sendCommand("setStick RIGHT -0x8000 0x0000") # Move right stick left
+```
+
+### Quick Reference Values
+```
+STICK VALUES QUICK REFERENCE
+---------------------------
+Neutral:    X: 0x0000    Y: 0x0000    # Center position
+Full Up:    X: 0x0000    Y: 0x7FFF    # Maximum up
+Full Down:  X: 0x0000    Y: -0x8000   # Maximum down
+Full Right: X: 0x7FFF    Y: 0x0000    # Maximum right
+Full Left:  X: -0x8000   Y: 0x0000    # Maximum left
+
+Diagonals (75% power for smooth movement):
+Up-Right:   X: 0x5FFF    Y: 0x5FFF    # 75% up-right
+Up-Left:    X: -0x5FFF   Y: 0x5FFF    # 75% up-left
+Down-Right: X: 0x5FFF    Y: -0x5FFF   # 75% down-right
+Down-Left:  X: -0x5FFF   Y: -0x5FFF   # 75% down-left
+
+Partial Movement:
+Half Right: X: 0x4000    Y: 0x0000    # 50% right (good for camera)
+Half Up:    X: 0x0000    Y: 0x4000    # 50% up
+Half Left:  X: -0x4000   Y: 0x0000    # 50% left
+Half Down:  X: 0x0000    Y: -0x4000   # 50% down
+```
+
 ### Stick Position Format
 Analog sticks use a hexadecimal coordinate system:
 - X-axis: -0x8000 (left) to 0x7FFF (right)
@@ -47,45 +119,108 @@ Analog sticks use a hexadecimal coordinate system:
 ### Verified Stick Positions
 
 ```python
-# Cardinal Directions (Full Tilt)
-UP    = { "x": 0x0000, "y": 0x8000 }   # Full up (positive Y)
-DOWN  = { "x": 0x0000, "y": -0x8000 }  # Full down (negative Y)
-RIGHT = { "x": 0x7FFF, "y": 0x0000 }   # Full right (positive X)
-LEFT  = { "x": -0x8000, "y": 0x0000 }  # Full left (negative X)
+# Left Stick Positions
+LEFT_STICK = {
+    "UP":    {"cmd": "setStick LEFT 0x0000 0x7FFF"},   # Full up
+    "DOWN":  {"cmd": "setStick LEFT 0x0000 -0x8000"},  # Full down
+    "RIGHT": {"cmd": "setStick LEFT 0x7FFF 0x0000"},   # Full right
+    "LEFT":  {"cmd": "setStick LEFT -0x8000 0x0000"},  # Full left
+    "CENTER": {"cmd": "setStick LEFT 0x0000 0x0000"}   # Neutral position
+}
 
-# Diagonal Directions (75% Tilt for Smooth Movement)
+# Right Stick Positions
+RIGHT_STICK = {
+    "UP":    {"cmd": "setStick RIGHT 0x0000 0x7FFF"},   # Full up
+    "DOWN":  {"cmd": "setStick RIGHT 0x0000 -0x8000"},  # Full down
+    "RIGHT": {"cmd": "setStick RIGHT 0x7FFF 0x0000"},   # Full right
+    "LEFT":  {"cmd": "setStick RIGHT -0x8000 0x0000"},  # Full left
+    "CENTER": {"cmd": "setStick RIGHT 0x0000 0x0000"}   # Neutral position
+}
+
+# Diagonal Positions (75% tilt for smooth movement)
 DIAGONAL = 0x5FFF  # ~75% of maximum value
-UP_RIGHT    = { "x": 0x5FFF, "y": 0x5FFF }
-UP_LEFT     = { "x": -0x5FFF, "y": 0x5FFF }
-DOWN_RIGHT  = { "x": 0x5FFF, "y": -0x5FFF }
-DOWN_LEFT   = { "x": -0x5FFF, "y": -0x5FFF }
 
-# Example Usage:
-switch.set_stick("LEFT", UP["x"], UP["y"])      # Move left stick up
-switch.set_stick("RIGHT", DOWN["x"], DOWN["y"])  # Move right stick down
+# Left Stick Diagonals
+LEFT_DIAGONALS = {
+    "UP_RIGHT":   {"cmd": "setStick LEFT 0x5FFF 0x5FFF"},    # Up-right
+    "UP_LEFT":    {"cmd": "setStick LEFT -0x5FFF 0x5FFF"},   # Up-left
+    "DOWN_RIGHT": {"cmd": "setStick LEFT 0x5FFF -0x5FFF"},   # Down-right
+    "DOWN_LEFT":  {"cmd": "setStick LEFT -0x5FFF -0x5FFF"}   # Down-left
+}
+
+# Right Stick Diagonals
+RIGHT_DIAGONALS = {
+    "UP_RIGHT":   {"cmd": "setStick RIGHT 0x5FFF 0x5FFF"},    # Up-right
+    "UP_LEFT":    {"cmd": "setStick RIGHT -0x5FFF 0x5FFF"},   # Up-left
+    "DOWN_RIGHT": {"cmd": "setStick RIGHT 0x5FFF -0x5FFF"},   # Down-right
+    "DOWN_LEFT":  {"cmd": "setStick RIGHT -0x5FFF -0x5FFF"}   # Down-left
+}
+```
+
+### Example Usage
+
+```python
+# Basic stick movement
+def move_left_stick_up():
+    switch.sendCommand("setStick LEFT 0x0000 0x7FFF")  # Move up
+    time.sleep(0.5)  # Hold for half second
+    switch.sendCommand("setStick LEFT 0x0000 0x0000")  # Return to center
+
+def move_right_stick_diagonal():
+    switch.sendCommand("setStick RIGHT 0x5FFF 0x5FFF")  # Move up-right
+    time.sleep(0.5)  # Hold for half second
+    switch.sendCommand("setStick RIGHT 0x0000 0x0000")  # Return to center
+
+# Camera control example
+def rotate_camera_right():
+    switch.sendCommand("setStick RIGHT 0x4000 0x0000")  # 50% right
+    time.sleep(0.2)  # Short duration for smooth camera
+    switch.sendCommand("setStick RIGHT 0x0000 0x0000")  # Center camera
+
+# Walking/running example
+def walk_diagonal():
+    switch.sendCommand("setStick LEFT -0x5FFF 0x5FFF")  # Up-left at 75%
+    time.sleep(1.0)  # Walk for 1 second
+    switch.sendCommand("setStick LEFT 0x0000 0x0000")  # Stop walking
 ```
 
 ### Critical Implementation Notes
 
-1. **Y-Axis Inversion**
-   - The Y-axis is INVERTED from standard coordinate systems
-   - Positive Y (0x8000) moves UP
-   - Negative Y (-0x8000) moves DOWN
-   - Getting this wrong will result in inverted controls
+1. **Stick Selection**
+   - ALWAYS use "LEFT" or "RIGHT" exactly (case sensitive)
+   - Invalid stick names will be ignored by the Switch
 
-2. **Diagonal Movement**
-   - Use 75% of maximum value (0x5FFF) for smooth diagonal movement
-   - Full power diagonals (0x7FFF) can be too sensitive
-   - This provides better control for precise movements
+2. **Command Format**
+   - Format must be: `setStick STICK_NAME X_VALUE Y_VALUE\r\n`
+   - Values must be in hexadecimal format
+   - Each command must end with `\r\n`
 
 3. **Return to Neutral**
-   - ALWAYS return sticks to neutral position (0x0, 0x0) after movement
+   - ALWAYS return sticks to neutral (0x0, 0x0) after movement
    - Failing to do so will leave the stick "stuck" in position
+   - Example:
+     ```python
+     try:
+         switch.sendCommand("setStick LEFT 0x7FFF 0x0000")  # Move right
+         time.sleep(0.5)  # Hold for duration
+     finally:
+         switch.sendCommand("setStick LEFT 0x0000 0x0000")  # Always return to neutral
+     ```
 
-4. **Value Ranges**
-   - X-axis maximum is asymmetric: -32768 to 32767 (-0x8000 to 0x7FFF)
-   - Y-axis maximum is asymmetric: -32768 to 32767 (-0x8000 to 0x7FFF)
-   - Neutral position is always (0x0, 0x0)
+4. **Smooth Movement**
+   - Use 75% values (0x5FFF) for diagonal movement
+   - For camera control, use 50% values (0x4000) for precision
+   - Full power (0x7FFF) can be too sensitive for some games
+
+5. **Error Prevention**
+   ```python
+   def safe_stick_movement(stick, x, y, duration):
+       try:
+           switch.sendCommand(f"setStick {stick} {x} {y}")
+           time.sleep(duration)
+       finally:
+           switch.sendCommand(f"setStick {stick} 0x0000 0x0000")
+   ```
 
 ## Advanced Button Sequences
 
